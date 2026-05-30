@@ -1,0 +1,105 @@
+# =================================================================
+# ZSSLR-AzSL — default configuration
+# Every script reads this file first; CLI flags can override.
+# =================================================================
+
+seed: 42
+
+training:
+  batch_size: 256
+  num_epochs: 100
+  learning_rate: 1.0e-4
+  weight_decay: 0.1
+  warmup_epochs: 5
+  scheduler: cosine               # cosine | step | plateau | none
+  gradient_clip: 1.0
+  val_every_n_epochs: 5
+  save_every_n_epochs: 10
+  early_stopping_patience: 15
+  mixed_precision: bf16           # no | fp16 | bf16
+
+model:
+  embedding_dim: 256
+  temperature_init: 0.07          # paper Eq. (2), converges to ~0.11 during training
+  temperature_learnable: true
+
+  visual:
+    sapiens:
+      model_name: sapiens_1b      # sapiens_0.3b | sapiens_0.6b | sapiens_1b
+      pretrained_path: checkpoints/sapiens_1b.pt
+      input_size: 1024            # paper: native 1024x1024
+      num_frames: 16              # paper: uniformly sampled
+      freeze: true
+
+    motionbert:
+      pretrained_path: checkpoints/motionbert_dstformer.pth
+      num_joints: 133             # MediaPipe Holistic (33 body + 58 face + 21 + 21 hand)
+      embed_dim: 512
+      num_layers: 8
+      joint_mask_ratio: 0.15      # training-only augmentation
+      joint_noise_std: 0.02
+      freeze: true
+
+  text:
+    model_name: language-ml-lab/AzerBert
+    max_length: 128
+    num_prompt_templates: 5
+    freeze: false                 # only trainable encoder in the system
+
+data:
+  azsld:
+    root_dir: data/azsld
+    video_dir: data/azsld/videos
+    skeleton_dir: data/azsld/skeletons
+    descriptions_file: data/azsld/descriptions.json
+    splits_dir: data/azsld/splits
+    num_glosses: 450
+    num_seen: 400
+    num_unseen: 50
+    seen_split: [0.8, 0.1, 0.1]   # train / val / test, split by signer identity
+
+  ms_zsslr_w:
+    root_dir: data/ms_zsslr_w
+    descriptions_file: data/ms_zsslr_w/descriptions_az.json
+    num_glosses: 611
+    num_seen: 511
+    num_unseen: 100
+
+  preprocessing:
+    num_frames: 16
+    spatial_size: 1024
+    sampling: uniform             # uniform | random | consecutive
+    # ImageNet normalisation (Sapiens & most ViTs are trained with this)
+    normalize_mean: [0.485, 0.456, 0.406]
+    normalize_std:  [0.229, 0.224, 0.225]
+
+  augmentation:
+    rgb:
+      color_jitter: 0.2
+      random_rotation_deg: 5      # never horizontal flip — would invert sign meaning
+    skeleton:
+      joint_mask_ratio: 0.15
+      joint_noise_std: 0.02
+
+loss:
+  type: symmetric_infonce         # only one currently used in the paper
+  label_smoothing: 0.0
+
+evaluation:
+  topk: [1, 5, 10]
+  zero_shot_split: unseen_only    # unseen_only | mixed
+
+logging:
+  project_name: zssl-azsl
+  use_wandb: false
+  use_tensorboard: false
+  log_every_n_steps: 50
+
+hardware:
+  num_workers: 8
+  pin_memory: true
+
+paths:
+  output_dir: outputs
+  checkpoint_dir: checkpoints
+  figures_dir: outputs/figures

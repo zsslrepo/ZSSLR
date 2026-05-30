@@ -3,7 +3,7 @@
 > Reference implementation for *“Word-Level Isolated Zero-Shot Sign Language Recognition via Frozen Human-Centric Foundation Models.”*
 > **Sapiens-1B** (RGB) + a lightweight **Temporal Transformer** + **MotionBERT** (skeleton) + **BERT-base** (text), trained with a symmetric InfoNCE loss for zero-shot recognition of unseen sign glosses. Evaluated on a stratified, signer-disjoint zero-shot split of **WLASL**, with strong **CLIP** and **SignCLIP** baselines under an identical contrastive protocol.
 
-**Paper:** Word-Level Isolated Zero-Shot Sign Language Recognition via Frozen Human-Centric Foundation Models · **Repo:** <https://github.com/Lala2398/ZSSLR>
+**Paper:** Word-Level Isolated Zero-Shot Sign Language Recognition via Frozen Human-Centric Foundation Models · **Repo:** <https://github.com/zsslrepo/ZSSLR/>
 
 ---
 
@@ -94,7 +94,7 @@ zsslr/
 ### 1. Environment
 
 ```bash
-git clone https://github.com/Lala2398/ZSSLR
+git clone https://github.com/zsslrepo/ZSSLR/
 cd ZSSLR
 bash scripts/setup_environment.sh
 # OR manually:
@@ -271,6 +271,6 @@ MIT — see `LICENSE`.
                Hasanli Yusif and Aliyev Elvin},
   booktitle = {Proceedings of the IEEE Conference},
   year      = {2026},
-  note      = {Code: https://github.com/Lala2398/ZSSLR}
+  note      = {Code: https://github.com/zsslrepo/ZSSLR/}
 }
 ```

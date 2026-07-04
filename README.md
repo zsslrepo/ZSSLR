@@ -176,23 +176,27 @@ ln -s /path/to/AzSLD_Words_200 data/azsld/videos
 ```bash
 python scripts/build_split.py \
     --video_dir data/azsld/videos \
-    --num_seen 150 --num_unseen 50 \
+    --num_unseen 50 \
     --seed 42 \
     --output_dir data/azsld/splits
 ```
 
 Writes `seen_glosses.txt`, `unseen_glosses.txt`, and `split_manifest.json`
-(frequency-stratified, gloss-disjoint). A manifest (e.g. AzSLD's `manifest.json`) can
-be passed instead of scanning the directory.
+(frequency-stratified, gloss-disjoint). The seen count is simply *total − unseen*
+(≈150 for words200). Pass `--manifest data/azsld/manifest.json` instead of
+`--video_dir` to build from an AzSLD-style manifest.
 
 ### 5. Build gloss descriptions
 
 ```bash
 python scripts/build_descriptions.py \
-    --splits_dir data/azsld/splits \
+    --video_dir data/azsld/videos \
     --output data/azsld/descriptions.json
     # optional: --override my_manual_descriptions.json
 ```
+
+The gloss list is taken from `--video_dir` (all glosses discovered on disk); you can
+instead pass `--manifest data/azsld/manifest.json` or `--glosses_file glosses.txt`.
 
 By default the description of a gloss is the normalised gloss word itself; supply a
 manual dictionary via `--override` to improve text quality (descriptions affect

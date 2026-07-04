@@ -1,11 +1,16 @@
 """End-to-end model: Sapiens (RGB) + MotionBERT (skeleton) + AzBERT (text).
 
-Paper Eq. (1): v = L2Norm(W_rgb * v_rgb + W_skel * v_skel)
-Paper Eq. (2): Symmetric InfoNCE with learnable temperature.
+Paper Eq. (1) — multimodal fusion:
+    v = Sapiens + Temporal Transformer      (B, visual_dim=1024)
+    m = MotionBERT                          (B, motion_dim=512)
+    h = ReLU(W1 [v; m] + b1)                (B, embedding_dim=512)
+    z_v = L2Norm(W2 h + b2)                 (B, embedding_dim)
 
-Only `azbert` (text encoder) and the linear projection heads inside the
-two visual encoders are trainable; the visual transformer backbones are
-kept frozen — paper Sec. III-B / V-C.
+Paper Eq. (2): symmetric InfoNCE aligns z_v with the text embedding z_t.
+
+Only the AzBERT text encoder, the Sapiens frame-projection + Temporal
+Transformer, the MotionBERT projection, and the fusion head are trainable;
+the two foundation backbones stay frozen — paper Sec. III-C.
 """
 
 from __future__ import annotations
@@ -33,9 +38,11 @@ class MultimodalZSLModel(nn.Module):
         sapiens_config: Optional[Dict] = None,
         motionbert_config: Optional[Dict] = None,
         azbert_config: Optional[Dict] = None,
-        embedding_dim: int = 256,
+        embedding_dim: int = 512,
+        visual_dim: int = 1024,
+        motion_dim: int = 512,
         temperature: float = 0.07,
-        temperature_learnable: bool = True,
+        temperature_learnable: bool = False,
     ):
         super().__init__()
         sapiens_cfg = sapiens_config or {}
@@ -43,31 +50,42 @@ class MultimodalZSLModel(nn.Module):
         azbert_cfg = azbert_config or {}
 
         # ------------------------------------------------------------------
-        # Visual encoders (frozen by default — see paper Sec. V-C)
+        # Visual encoders (frozen backbones — see paper Sec. III-C)
         # ------------------------------------------------------------------
         self.sapiens = SapiensEncoder(
             model_name=sapiens_cfg.get("model_name", "sapiens_1b"),
             pretrained_path=sapiens_cfg.get("pretrained_path"),
-            embedding_dim=embedding_dim,
-            num_frames=sapiens_cfg.get("num_frames", 16),
+            visual_dim=visual_dim,
+            num_frames=sapiens_cfg.get("num_frames", 32),
             input_size=sapiens_cfg.get("input_size", 1024),
+            temporal_layers=sapiens_cfg.get("temporal_layers", 1),
+            temporal_heads=sapiens_cfg.get("temporal_heads", 8),
             freeze=sapiens_cfg.get("freeze", True),
             chunk_size=sapiens_cfg.get("chunk_size", 8),
         )
 
         self.motionbert = MotionBERTEncoder(
-            num_joints=motionbert_cfg.get("num_joints", 133),
+            num_joints=motionbert_cfg.get("num_joints", 17),
             embed_dim=motionbert_cfg.get("embed_dim", 512),
-            num_layers=motionbert_cfg.get("num_layers", 8),
+            num_layers=motionbert_cfg.get("num_layers", 5),
             pretrained_path=motionbert_cfg.get("pretrained_path"),
-            projection_dim=embedding_dim,
+            motion_dim=motion_dim,
             joint_mask_ratio=motionbert_cfg.get("joint_mask_ratio", 0.15),
             joint_noise_std=motionbert_cfg.get("joint_noise_std", 0.02),
             freeze=motionbert_cfg.get("freeze", True),
         )
 
         # ------------------------------------------------------------------
-        # Text encoder (trainable)
+        # Multimodal fusion head (paper Eq. 1): concat -> MLP -> L2-norm
+        # ------------------------------------------------------------------
+        self.fusion = nn.Sequential(
+            nn.Linear(visual_dim + motion_dim, embedding_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(embedding_dim, embedding_dim),
+        )
+
+        # ------------------------------------------------------------------
+        # Text encoder (trainable) — projects to the shared embedding_dim.
         # ------------------------------------------------------------------
         self.azbert = AzBERTEncoder(
             model_name=azbert_cfg.get("model_name", "language-ml-lab/AzerBert"),
@@ -86,6 +104,8 @@ class MultimodalZSLModel(nn.Module):
         )
 
         self.embedding_dim = embedding_dim
+        self.visual_dim = visual_dim
+        self.motion_dim = motion_dim
 
     # ----------------------------------------------------------------------
     def encode_visual(
@@ -94,23 +114,27 @@ class MultimodalZSLModel(nn.Module):
         skeleton: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
-        Implements paper Eq. (1).
+        Implements paper Eq. (1): concat visual + motion, MLP-fuse, L2-norm.
 
         Args
         ----
         video_frames : (B, T, 3, H, W) — already preprocessed.
-        skeleton     : (B, T, J, 2) — optional. If None, returns RGB-only.
+        skeleton     : (B, T, J, 2) — optional. If None, the motion stream is
+                       zeroed (matches the "without skeleton" ablation).
 
         Returns
         -------
-        (B, embedding_dim) — L2-normalised.
+        (B, embedding_dim) — L2-normalised fused video embedding.
         """
-        v_rgb = self.sapiens(video_frames)              # (B, D), L2-normed
+        v = self.sapiens(video_frames)                  # (B, visual_dim)
         if skeleton is None:
-            return v_rgb
-        v_skel = self.motionbert(skeleton)              # (B, D), L2-normed
-        v = v_rgb + v_skel
-        return F.normalize(v, p=2, dim=-1)
+            m = torch.zeros(v.size(0), self.motion_dim,
+                            device=v.device, dtype=v.dtype)
+        else:
+            m = self.motionbert(skeleton)               # (B, motion_dim)
+        fused = torch.cat([v, m], dim=-1)               # (B, visual_dim + motion_dim)
+        z = self.fusion(fused)                          # (B, embedding_dim)
+        return F.normalize(z, p=2, dim=-1)
 
     # ----------------------------------------------------------------------
     def encode_text(
@@ -190,6 +214,8 @@ class MultimodalZSLModel(nn.Module):
             "motionbert_trainable": nt(self.motionbert),
             "azbert_total":       n(self.azbert),
             "azbert_trainable":   nt(self.azbert),
+            "fusion_total":       n(self.fusion),
+            "fusion_trainable":   nt(self.fusion),
             "total":              n(self),
             "trainable":          nt(self),
         }

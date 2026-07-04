@@ -80,10 +80,10 @@ class DSTFormer(nn.Module):
 
     def __init__(
         self,
-        num_joints: int = 133,
+        num_joints: int = 17,
         in_dim: int = 2,
         embed_dim: int = 512,
-        num_layers: int = 8,
+        num_layers: int = 5,
         num_heads: int = 8,
         mlp_ratio: float = 4.0,
         dropout: float = 0.1,
@@ -120,11 +120,11 @@ class MotionBERTEncoder(nn.Module):
 
     def __init__(
         self,
-        num_joints: int = 133,
+        num_joints: int = 17,
         embed_dim: int = 512,
-        num_layers: int = 8,
+        num_layers: int = 5,
         pretrained_path: Optional[str] = None,
-        projection_dim: int = 256,
+        motion_dim: int = 512,
         joint_mask_ratio: float = 0.15,
         joint_noise_std: float = 0.02,
         freeze: bool = True,
@@ -160,9 +160,10 @@ class MotionBERTEncoder(nn.Module):
             n = sum(p.numel() for p in self.backbone.parameters())
             logger.info("MotionBERT backbone frozen — %d parameters", n)
 
+        self.motion_dim = motion_dim
         self.projection = nn.Sequential(
-            nn.Linear(embed_dim, projection_dim),
-            nn.LayerNorm(projection_dim),
+            nn.Linear(embed_dim, motion_dim),
+            nn.LayerNorm(motion_dim),
         )
 
     def train(self, mode: bool = True):
@@ -196,7 +197,8 @@ class MotionBERTEncoder(nn.Module):
 
         Returns
         -------
-        (B, projection_dim) — L2-normalised.
+        (B, motion_dim) — motion embedding (NOT L2-normalised; the
+        multimodal fusion head applies the final norm).
         """
         skeleton = self._augment(skeleton)
 
@@ -204,9 +206,8 @@ class MotionBERTEncoder(nn.Module):
         with ctx:
             feats = self.backbone(skeleton)              # (B, T, J, D)
 
-        # Pool over joints first, then over time
+        # Pool over joints first, then over time (paper Sec. III-C)
         feats = feats.mean(dim=2)                        # (B, T, D)
         feats = feats.mean(dim=1)                        # (B, D)
 
-        x = self.projection(feats)
-        return F.normalize(x, p=2, dim=-1)
+        return self.projection(feats)                    # (B, motion_dim)

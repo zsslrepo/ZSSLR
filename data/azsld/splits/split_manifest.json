@@ -1,0 +1,10 @@
+{
+  "seed": 42,
+  "total_glosses": 200,
+  "eligible_glosses": 200,
+  "dropped_below_min": 0,
+  "min_videos_per_gloss": 5,
+  "num_seen": 150,
+  "num_unseen": 50,
+  "num_buckets": 4
+}

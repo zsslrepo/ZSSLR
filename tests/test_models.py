@@ -19,10 +19,11 @@ from src.models import MultimodalZSLModel
 def _build_tiny_model():
     sapiens_cfg = dict(
         model_name="sapiens_0.3b", pretrained_path=None,
-        input_size=32, num_frames=4, freeze=True, chunk_size=2,
+        input_size=32, num_frames=4, temporal_layers=1, temporal_heads=4,
+        freeze=True, chunk_size=2,
     )
     motionbert_cfg = dict(
-        num_joints=133, embed_dim=32, num_layers=1,
+        num_joints=17, embed_dim=32, num_layers=1,
         pretrained_path=None, joint_mask_ratio=0.15, joint_noise_std=0.02,
         freeze=True,
     )
@@ -35,8 +36,9 @@ def _build_tiny_model():
         motionbert_config=motionbert_cfg,
         azbert_config=azbert_cfg,
         embedding_dim=32,
+        visual_dim=32,
+        motion_dim=32,
         temperature=0.07,
-        temperature_learnable=True,
     )
 
 
@@ -51,7 +53,7 @@ def test_model_builds():
 def test_visual_embeddings_are_l2_normed():
     m = _build_tiny_model().eval()
     frames = torch.randn(2, 4, 3, 32, 32)
-    skeleton = torch.rand(2, 4, 133, 2)
+    skeleton = torch.rand(2, 4, 17, 2)
     v = m.encode_visual(frames, skeleton)
     norms = v.norm(dim=-1)
     assert v.shape == (2, 32)
@@ -70,7 +72,7 @@ def test_text_embeddings_shape_with_prompt_ensemble():
 def test_forward_loss_is_finite_and_backprops():
     m = _build_tiny_model().train()
     frames = torch.randn(3, 4, 3, 32, 32)
-    skeleton = torch.rand(3, 4, 133, 2)
+    skeleton = torch.rand(3, 4, 17, 2)
     descriptions = [
         "Baş barmaq alına toxunur.",
         "İki əl ev şəklində birləşir.",
@@ -91,7 +93,7 @@ def test_zero_shot_classify_runs_eval_mode_independent():
     m = _build_tiny_model()
     m.train()
     frames = torch.randn(2, 4, 3, 32, 32)
-    skeleton = torch.rand(2, 4, 133, 2)
+    skeleton = torch.rand(2, 4, 17, 2)
     classes = {"a": "Baş barmaq alına toxunur.", "b": "İki əl açılır."}
     out = m.zero_shot_classify(frames, classes, skeleton)
     assert out["similarities"].shape == (2, 2)
@@ -106,5 +108,9 @@ def test_visual_encoder_freezing():
     assert not any(p.requires_grad for p in m.sapiens.backbone.parameters())
     assert not any(p.requires_grad for p in m.motionbert.backbone.parameters())
     # The projection heads ARE trainable
-    assert m.sapiens.projection.weight.requires_grad
+    assert m.sapiens.frame_proj.weight.requires_grad
+    # Temporal Transformer is trainable
+    assert any(p.requires_grad for p in m.sapiens.temporal_encoder.parameters())
+    # Fusion head is trainable
+    assert any(p.requires_grad for p in m.fusion.parameters())
     assert m.motionbert.projection[0].weight.requires_grad

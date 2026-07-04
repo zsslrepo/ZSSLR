@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 # ----------------------------------------------------------------------
-# Five Azerbaijani prompt templates designed by native speakers (Sec. III-C).
+# Five Azerbaijani prompt templates (prompt ensemble, paper Sec. III-C).
 # Each must contain the literal "{description}" placeholder.
 # ----------------------------------------------------------------------
 PROMPT_TEMPLATES_AZ: List[str] = [
@@ -47,7 +47,7 @@ class AzBERTEncoder(nn.Module):
     def __init__(
         self,
         model_name: str = "language-ml-lab/AzerBert",
-        embedding_dim: int = 256,
+        embedding_dim: int = 512,
         max_length: int = 128,
         num_prompt_templates: int = 5,
         freeze: bool = False,

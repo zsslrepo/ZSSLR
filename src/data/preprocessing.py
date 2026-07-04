@@ -78,17 +78,32 @@ class VideoPreprocessor:
 
 
 # ----------------------------------------------------------------------
-# Skeleton extractor — produces (T, 133, 2) per video.
-# Layout:  33 body + 58 face (uniform subsample from 478) + 21 left + 21 right
-# = 33 + 58 + 21 + 21 = 133  (matches paper Sec. III-B)
+# Skeleton extractor — produces (T, 17, 2) per video in H36M joint order.
+#
+# The paper feeds MotionBERT a "17-joint H36M-compatible skeleton"
+# (Sec. III-B). We run MediaPipe Pose (33 body landmarks) and map them to
+# the standard 17-joint Human3.6M layout used by MotionBERT / VideoPose3D:
+#
+#   0 Hip(pelvis) 1 RHip 2 RKnee 3 RAnkle 4 LHip 5 LKnee 6 LAnkle
+#   7 Spine 8 Thorax 9 Neck/Nose 10 Head 11 LShoulder 12 LElbow 13 LWrist
+#   14 RShoulder 15 RElbow 16 RWrist
+#
+# Derived joints (pelvis, spine, thorax, head) are computed as midpoints.
 # ----------------------------------------------------------------------
 class SkeletonExtractor:
-    """Extract 133 normalised (x, y) keypoints per frame using MediaPipe Holistic."""
+    """Extract 17 normalised (x, y) H36M keypoints per frame via MediaPipe Pose."""
 
-    POSE_JOINTS = 33
-    FACE_JOINTS = 58
-    HAND_JOINTS = 21
-    TOTAL_JOINTS = POSE_JOINTS + FACE_JOINTS + 2 * HAND_JOINTS   # 133
+    TOTAL_JOINTS = 17
+
+    # MediaPipe Pose landmark indices used in the mapping.
+    _NOSE = 0
+    _L_EAR, _R_EAR = 7, 8
+    _L_SHOULDER, _R_SHOULDER = 11, 12
+    _L_ELBOW, _R_ELBOW = 13, 14
+    _L_WRIST, _R_WRIST = 15, 16
+    _L_HIP, _R_HIP = 23, 24
+    _L_KNEE, _R_KNEE = 25, 26
+    _L_ANKLE, _R_ANKLE = 27, 28
 
     def __init__(self, model_complexity: int = 2):
         try:
@@ -99,51 +114,56 @@ class SkeletonExtractor:
                 "Install with `pip install mediapipe`."
             ) from e
         self.mp = mp
+        # Holistic exposes the same 33-landmark pose model; we only use pose.
         self.holistic = mp.solutions.holistic.Holistic(
             static_image_mode=False,
             model_complexity=model_complexity,
-            refine_face_landmarks=True,
+            refine_face_landmarks=False,
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5,
         )
+
+    @staticmethod
+    def _mid(a, b):
+        return [(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0]
+
+    def _pose_to_h36m(self, pose: List[List[float]]) -> List[List[float]]:
+        """Map 33 MediaPipe pose (x, y) to the 17-joint H36M order."""
+        pelvis = self._mid(pose[self._L_HIP], pose[self._R_HIP])
+        thorax = self._mid(pose[self._L_SHOULDER], pose[self._R_SHOULDER])
+        spine = self._mid(pelvis, thorax)
+        head = self._mid(pose[self._L_EAR], pose[self._R_EAR])
+        return [
+            pelvis,                       # 0 Hip
+            pose[self._R_HIP],            # 1 RHip
+            pose[self._R_KNEE],           # 2 RKnee
+            pose[self._R_ANKLE],          # 3 RAnkle
+            pose[self._L_HIP],            # 4 LHip
+            pose[self._L_KNEE],           # 5 LKnee
+            pose[self._L_ANKLE],          # 6 LAnkle
+            spine,                        # 7 Spine
+            thorax,                       # 8 Thorax
+            pose[self._NOSE],             # 9 Neck/Nose
+            head,                         # 10 Head
+            pose[self._L_SHOULDER],       # 11 LShoulder
+            pose[self._L_ELBOW],          # 12 LElbow
+            pose[self._L_WRIST],          # 13 LWrist
+            pose[self._R_SHOULDER],       # 14 RShoulder
+            pose[self._R_ELBOW],          # 15 RElbow
+            pose[self._R_WRIST],          # 16 RWrist
+        ]
 
     def extract_keypoints(self, bgr_frame: np.ndarray) -> np.ndarray:
         rgb = cv2.cvtColor(bgr_frame, cv2.COLOR_BGR2RGB)
         res = self.holistic.process(rgb)
 
-        pts: List[List[float]] = []
-
-        # 1) Body pose (33)
         if res.pose_landmarks:
-            pts.extend([[lm.x, lm.y] for lm in res.pose_landmarks.landmark])
+            pose = [[lm.x, lm.y] for lm in res.pose_landmarks.landmark]
+            h36m = self._pose_to_h36m(pose)
         else:
-            pts.extend([[0.0, 0.0]] * self.POSE_JOINTS)
+            h36m = [[0.0, 0.0]] * self.TOTAL_JOINTS
 
-        # 2) Face (uniform sub-sample to 58)
-        if res.face_landmarks:
-            full = [[lm.x, lm.y] for lm in res.face_landmarks.landmark]
-            n = len(full)
-            if n >= self.FACE_JOINTS:
-                idx = np.linspace(0, n - 1, self.FACE_JOINTS, dtype=int)
-                pts.extend([full[i] for i in idx])
-            else:                                       # pragma: no cover
-                pts.extend(full + [[0.0, 0.0]] * (self.FACE_JOINTS - n))
-        else:
-            pts.extend([[0.0, 0.0]] * self.FACE_JOINTS)
-
-        # 3) Left hand (21)
-        if res.left_hand_landmarks:
-            pts.extend([[lm.x, lm.y] for lm in res.left_hand_landmarks.landmark])
-        else:
-            pts.extend([[0.0, 0.0]] * self.HAND_JOINTS)
-
-        # 4) Right hand (21)
-        if res.right_hand_landmarks:
-            pts.extend([[lm.x, lm.y] for lm in res.right_hand_landmarks.landmark])
-        else:
-            pts.extend([[0.0, 0.0]] * self.HAND_JOINTS)
-
-        arr = np.asarray(pts[: self.TOTAL_JOINTS], dtype=np.float32)
+        arr = np.asarray(h36m, dtype=np.float32)
         if arr.shape != (self.TOTAL_JOINTS, 2):
             raise RuntimeError(
                 f"Expected ({self.TOTAL_JOINTS},2) keypoints, got {arr.shape}"
@@ -167,7 +187,7 @@ class SkeletonExtractor:
         if not seq:
             raise IOError(f"No frames decoded from {video_path}")
 
-        sk = np.stack(seq, axis=0)                       # (T, 133, 2)
+        sk = np.stack(seq, axis=0)                       # (T, 17, 2)
         if output_path is not None:
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
             np.save(str(output_path), sk)

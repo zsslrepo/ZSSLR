@@ -31,7 +31,7 @@ class SymmetricInfoNCE(nn.Module):
     following Radford et al. (CLIP, 2021).
     """
 
-    def __init__(self, temperature: float = 0.07, learnable_temp: bool = True):
+    def __init__(self, temperature: float = 0.07, learnable_temp: bool = False):
         super().__init__()
         log_scale = np.log(1.0 / temperature)
         if learnable_temp:

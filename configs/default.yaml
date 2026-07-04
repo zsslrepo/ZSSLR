@@ -1,15 +1,16 @@
 # =================================================================
-# ZSSLR-AzSL — default configuration
+# ZSSLR-AzSL — default configuration (paper-faithful)
 # Every script reads this file first; CLI flags can override.
+# Target: Azerbaijani Sign Language (AzSLD words200).
 # =================================================================
 
 seed: 42
 
 training:
-  batch_size: 256
+  batch_size: 64                  # paper: B=64
   num_epochs: 100
-  learning_rate: 1.0e-4
-  weight_decay: 0.1
+  learning_rate: 1.0e-4           # paper: AdamW lr=1e-4
+  weight_decay: 1.0e-5            # paper: weight_decay=1e-5
   warmup_epochs: 5
   scheduler: cosine               # cosine | step | plateau | none
   gradient_clip: 1.0
@@ -19,23 +20,27 @@ training:
   mixed_precision: bf16           # no | fp16 | bf16
 
 model:
-  embedding_dim: 256
-  temperature_init: 0.07          # paper Eq. (2), converges to ~0.11 during training
-  temperature_learnable: true
+  embedding_dim: 512              # shared space (paper: 512)
+  visual_dim: 1024                # Sapiens video embedding (paper: 1024)
+  motion_dim: 512                 # MotionBERT motion embedding (paper: 512)
+  temperature_init: 0.07          # paper Eq. (2): fixed τ=0.07
+  temperature_learnable: false    # paper treats τ as a fixed hyper-parameter
 
   visual:
     sapiens:
       model_name: sapiens_1b      # sapiens_0.3b | sapiens_0.6b | sapiens_1b
       pretrained_path: checkpoints/sapiens_1b.pt
       input_size: 1024            # paper: native 1024x1024
-      num_frames: 16              # paper: uniformly sampled
+      num_frames: 32              # paper: T=32 uniformly sampled frames
+      temporal_layers: 1          # paper: 1-layer Temporal Transformer
+      temporal_heads: 8           # paper: 8 heads
       freeze: true
 
     motionbert:
       pretrained_path: checkpoints/motionbert_dstformer.pth
-      num_joints: 133             # MediaPipe Holistic (33 body + 58 face + 21 + 21 hand)
+      num_joints: 17              # paper: 17-joint H36M skeleton (MotionBERT)
       embed_dim: 512
-      num_layers: 8
+      num_layers: 5               # paper: DSTformer depth=5
       joint_mask_ratio: 0.15      # training-only augmentation
       joint_noise_std: 0.02
       freeze: true
@@ -43,31 +48,24 @@ model:
   text:
     model_name: language-ml-lab/AzerBert
     max_length: 128
-    num_prompt_templates: 5
-    freeze: false                 # only trainable encoder in the system
+    num_prompt_templates: 5       # Azerbaijani prompt ensemble
+    freeze: false                 # only trainable text encoder in the system
 
 data:
   azsld:
     root_dir: data/azsld
-    video_dir: data/azsld/videos
-    skeleton_dir: data/azsld/skeletons
+    video_dir: data/azsld/videos            # link AzSLD words200 videos here
+    skeleton_dir: data/azsld/skeletons      # produced by extract_skeletons.py (17-joint)
     descriptions_file: data/azsld/descriptions.json
     splits_dir: data/azsld/splits
-    num_glosses: 450
-    num_seen: 400
+    num_glosses: 200              # AzSLD words200
+    num_seen: 150
     num_unseen: 50
-    seen_split: [0.8, 0.1, 0.1]   # train / val / test, split by signer identity
-
-  ms_zsslr_w:
-    root_dir: data/ms_zsslr_w
-    descriptions_file: data/ms_zsslr_w/descriptions_az.json
-    num_glosses: 611
-    num_seen: 511
-    num_unseen: 100
+    seen_val_fraction: 0.1        # video-disjoint held-out val (early stopping)
 
   preprocessing:
-    num_frames: 16
-    spatial_size: 1024
+    num_frames: 32                # must match model.visual.sapiens.num_frames
+    spatial_size: 1024            # paper native; lower (e.g. 224) for quick local runs
     sampling: uniform             # uniform | random | consecutive
     # ImageNet normalisation (Sapiens & most ViTs are trained with this)
     normalize_mean: [0.485, 0.456, 0.406]
@@ -82,15 +80,15 @@ data:
       joint_noise_std: 0.02
 
 loss:
-  type: symmetric_infonce         # only one currently used in the paper
+  type: symmetric_infonce         # paper Eq. (2)
   label_smoothing: 0.0
 
 evaluation:
   topk: [1, 5, 10]
-  zero_shot_split: unseen_only    # unseen_only | mixed
+  zero_shot_split: unseen_only    # unseen_only | mixed (GZSL)
 
 logging:
-  project_name: zssl-azsl
+  project_name: zsslr-azsl
   use_wandb: false
   use_tensorboard: false
   log_every_n_steps: 50

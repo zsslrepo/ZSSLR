@@ -26,7 +26,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import yaml
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 
 # Make `src.*` importable when running this script directly.
@@ -117,22 +117,25 @@ def build_dataloaders(cfg: Dict, args) -> tuple:
         normalize_std=pp_cfg["normalize_std"],
     )
 
-    train_ds = ZeroShotSignDataset(
-        seen_glosses=seen_glosses,
-        unseen_glosses=unseen_glosses,
-        split="seen",
-        **common_kwargs,
-    )
-    val_ds = ZeroShotSignDataset(
+    seen_ds = ZeroShotSignDataset(
         seen_glosses=seen_glosses,
         unseen_glosses=unseen_glosses,
         split="seen",
         **common_kwargs,
     )
 
-    # NOTE: in a real run, train/val are split by signer identity using
-    # `splits/signer_map.json`. For the starter scaffold we simply use the
-    # full seen split for both and rely on the in-script seed for repro.
+    # Held-out validation for early stopping. The paper uses a
+    # signer-disjoint split; AzSLD words200 carries no signer identity, so
+    # we fall back to a deterministic *video-disjoint* split of the seen
+    # glosses (no video appears in both train and val).
+    val_frac = azsld_cfg.get("seen_val_fraction", 0.1)
+    n = len(seen_ds)
+    gen = torch.Generator().manual_seed(cfg["seed"])
+    perm = torch.randperm(n, generator=gen).tolist()
+    n_val = int(round(n * val_frac)) if n > 1 else 0
+    val_idx, train_idx = perm[:n_val], perm[n_val:]
+    train_ds = Subset(seen_ds, train_idx)
+    val_ds = Subset(seen_ds, val_idx)
 
     batch_size = args.batch_size or cfg["training"]["batch_size"]
     num_workers = args.num_workers or cfg["hardware"]["num_workers"]
@@ -164,6 +167,8 @@ def build_dataloaders(cfg: Dict, args) -> tuple:
 def build_model(cfg: Dict, device: str) -> MultimodalZSLModel:
     model = MultimodalZSLModel(
         embedding_dim=cfg["model"]["embedding_dim"],
+        visual_dim=cfg["model"].get("visual_dim", 1024),
+        motion_dim=cfg["model"].get("motion_dim", 512),
         temperature=cfg["model"]["temperature_init"],
         temperature_learnable=cfg["model"]["temperature_learnable"],
         sapiens_config=cfg["model"]["visual"]["sapiens"],

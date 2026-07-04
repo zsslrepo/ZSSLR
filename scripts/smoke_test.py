@@ -35,8 +35,8 @@ def main() -> None:
     B = 4                 # batch size
     T = 4                 # frames
     H = W = 64            # tiny spatial size
-    J = 133               # paper-compliant keypoint count
-    D = 64                # embedding dim
+    J = 17                # paper-compliant H36M keypoint count
+    D = 64                # embedding dim (visual/motion/shared kept small for speed)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Device: {device}")
@@ -46,11 +46,13 @@ def main() -> None:
         pretrained_path=None,
         input_size=H,
         num_frames=T,
+        temporal_layers=1,
+        temporal_heads=8,
         freeze=True,
         chunk_size=8,
     )
     motionbert_cfg = dict(
-        num_joints=J, embed_dim=64, num_layers=2,
+        num_joints=J, embed_dim=D, num_layers=2,
         pretrained_path=None,
         joint_mask_ratio=0.15, joint_noise_std=0.02, freeze=True,
     )
@@ -66,8 +68,9 @@ def main() -> None:
         motionbert_config=motionbert_cfg,
         azbert_config=azbert_cfg,
         embedding_dim=D,
+        visual_dim=D,
+        motion_dim=D,
         temperature=0.07,
-        temperature_learnable=True,
     ).to(device)
     counts = model.count_parameters()
     print(f"  Total params: {counts['total']:,}  |  Trainable: {counts['trainable']:,}")
@@ -141,7 +144,8 @@ def main() -> None:
         # Reload into a fresh model
         model2 = MultimodalZSLModel(
             sapiens_config=sapiens_cfg, motionbert_config=motionbert_cfg,
-            azbert_config=azbert_cfg, embedding_dim=D, temperature=0.07,
+            azbert_config=azbert_cfg, embedding_dim=D, visual_dim=D,
+            motion_dim=D, temperature=0.07,
         ).to(device)
         info = load_checkpoint(path, model2, map_location=device)
         model2.eval()

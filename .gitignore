@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Data — large binaries are NOT committed. Splits + descriptions ARE
+# (they define the reproducible zero-shot partition), so they are re-included.
+data/azsld/videos/
+data/azsld/skeletons/
+data/azsld/frames/
+data/azsld/raw/
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.npy
+*.npz
+!data/azsld/splits/**
+!data/azsld/descriptions.json
+
+# Model checkpoints / weights
+checkpoints/
+*.pt
+*.pth
+*.safetensors
+
+# Experiment outputs
+outputs/
+wandb/
+runs/
+*.log
+
+# OS / editor
+.DS_Store
+.ipynb_checkpoints/
+.idea/
+.vscode/

@@ -1,91 +1,79 @@
-# ZSSLR — Multimodal Zero-Shot Word-Level Sign Language Recognition
+# ZSSLR-AzSL — Multimodal Zero-Shot Word-Level Sign Language Recognition
 
-> Reference implementation for *“Word-Level Isolated Zero-Shot Sign Language Recognition via Frozen Human-Centric Foundation Models.”*
-> **Sapiens-1B** (RGB) + a lightweight **Temporal Transformer** + **MotionBERT** (skeleton) + **BERT-base** (text), trained with a symmetric InfoNCE loss for zero-shot recognition of unseen sign glosses. Evaluated on a stratified, signer-disjoint zero-shot split of **WLASL**, with strong **CLIP** and **SignCLIP** baselines under an identical contrastive protocol.
+> Reference implementation of a **frozen human-centric foundation-model** approach to
+> word-level *zero-shot* sign language recognition, adapted to **Azerbaijani Sign
+> Language (AzSL)**.
+>
+> **Sapiens-1B** (RGB) + a lightweight **Temporal Transformer** + **MotionBERT**
+> (skeleton) + a trainable **AzerBert** text encoder, trained with a symmetric
+> InfoNCE loss so the model can recognise sign glosses it has **never seen during
+> training**. Data: the public **AzSLD *words200*** corpus.
 
-**Paper:** Word-Level Isolated Zero-Shot Sign Language Recognition via Frozen Human-Centric Foundation Models · **Repo:** <https://github.com/zsslrepo/ZSSLR/>
-
----
-
-## Headline results (WLASL, 500 unseen glosses; mean ± std over 3 seeds)
-
-| Model | Top-1 (%) | Top-5 (%) | mAP (%) | H-mean (%) |
-|---|---|---|---|---|
-| **Ours (Sapiens + Temporal Transf. + MotionBERT + prompt ens.)** | **35.2 ± 0.4** | **57.4 ± 0.5** | **41.0 ± 0.4** | **28.6 ± 0.5** |
-| SignCLIP (visual + text enc.) | 34.1 ± 0.4 | 56.0 ± 0.5 | 39.5 ± 0.4 | 27.3 ± 0.5 |
-| Full CLIP (ViT-L/14 + CLIP text) | 31.8 ± 0.4 | 53.6 ± 0.5 | 37.1 ± 0.5 | 25.7 ± 0.5 |
-| CLIP visual-swap (ViT-L/14 + BERT text) | 30.1 ± 0.5 | 52.0 ± 0.6 | 35.4 ± 0.5 | 24.3 ± 0.6 |
-
-The full model leads all baselines. The skeleton-motion stream of MotionBERT supplies the final **+1.1 pp** margin over sign-specific SignCLIP pretraining, and the Temporal Transformer adds **+1.8 pp** over plain mean-pooling (35.2 vs. 33.4).
+**Repo:** <https://github.com/zsslrepo/ZSSLR/>
 
 ---
 
-## What this repository contains
+## What this repository is
 
-This is a **reference / starter repository**. WLASL videos are publicly distributable via the [official WLASL release](https://github.com/dxli94/WLASL), but the official **Sapiens-1B** and **MotionBERT** checkpoints require separate registration/download and are not redistributed here. What we *do* provide:
+This is a **research / reference repository** for a university scientific work. Its
+goal is to be **honest, reproducible, and actually runnable** on the one real dataset
+we have — AzSLD.
 
-1. **Reference implementation** of the model exactly as described in the paper — frozen Sapiens-1B + MotionBERT encoders, a trainable 1-layer/8-head Temporal Transformer for visual aggregation, a trainable BERT-base text encoder, a symmetric InfoNCE loss, and a 3-template prompt ensemble.
-2. **The CLIP and SignCLIP baselines**, implemented under the *identical* contrastive protocol so the comparison isolates the effect of pretraining domain and the skeleton-motion stream.
-3. **A smoke-test pipeline** that runs end-to-end on synthetic dummy data — verifies the code is correct without requiring the dataset or pretrained weights.
-4. **Two evaluation protocols** — traditional ZSL (unseen search space) and Generalized ZSL (full-vocabulary search space, reporting `Au`, `As`, and `H-mean`).
-5. **Reproducible figures and tables** generated from saved `.npz` outputs; when no checkpoint is available the notebooks fall back to the numbers reported in the paper (clearly labelled).
+The method follows the paper *"Word-Level Isolated Zero-Shot Sign Language
+Recognition via Frozen Human-Centric Foundation Models"*, but the **language and data
+are Azerbaijani**, not English/WLASL. Concretely:
 
-> **Paper-faithful numbers** — see Section IV of the paper. We do not fabricate experimental results; every figure flags whether it uses real model outputs or reported numbers.
+- **Visual stream** — frozen **Sapiens-1B** (ViT-Huge) encodes each of `T = 32`
+  frames; a trainable **1-layer, 8-head Temporal Transformer** aggregates them into a
+  single 1024-d video embedding.
+- **Skeleton stream** — frozen **MotionBERT** (DSTformer, depth 5) encodes a
+  **17-joint H36M** skeleton sequence into a 512-d motion embedding.
+- **Text stream** — trainable **AzerBert** (`language-ml-lab/AzerBert`) with a
+  **5-template Azerbaijani prompt ensemble** produces a 512-d gloss embedding.
+- **Fusion** — `concat[v(1024); m(512)] → Linear(1536→512) → ReLU → Linear(512→512)
+  → L2-norm` (paper Eq. 1).
+- **Loss** — **symmetric InfoNCE**, fixed temperature `τ = 0.07` (paper Eq. 2).
+
+Only the **text encoder, the Temporal Transformer, and the fusion / projection heads**
+are trained. Sapiens-1B and MotionBERT stay **frozen**.
+
+> **No fabricated numbers.** This README contains no results table. Reported accuracy
+> requires the official Sapiens-1B / MotionBERT checkpoints and a GPU (see
+> *Foundation-model weights* below). Run the pipeline on your machine and fill in your
+> own measured numbers.
 
 ---
 
-## Repository layout
+## Dataset — AzSLD *words200*
+
+- **Source:** AzSLD (Azerbaijani Sign Language Dataset), *words200* subset — 200
+  Azerbaijani word glosses, ~8,500 videos. Public release on Zenodo
+  (record `14222948`).
+- **Layout expected by the code:**
 
 ```
-zsslr/
-├── README.md                          # this file
-├── LICENSE                            # MIT
-├── setup.py                           # pip install -e .
-├── requirements.txt
-├── configs/
-│   ├── default.yaml                   # full model — single source of truth for hyperparameters
-│   ├── clip_baseline.yaml             # ViT-L/14 + CLIP text encoder
-│   └── signclip_baseline.yaml         # SignCLIP visual + text encoder
-├── scripts/
-│   ├── setup_environment.sh           # one-shot venv + deps installer
-│   ├── extract_skeletons.py           # MediaPipe Holistic → 17-joint H36M .npy per video
-│   ├── build_split.py                 # stratified, signer-disjoint zero-shot split + manifest
-│   ├── train.py                       # main training entry point (full / clip / signclip)
-│   ├── evaluate.py                    # ZSL + GZSL evaluation, saves .npz
-│   ├── noise_robustness.py            # Gaussian skeleton-noise sweep (Table II)
-│   └── smoke_test.py                  # end-to-end test on synthetic data
-├── src/
-│   ├── models/
-│   │   ├── sapiens_encoder.py         # frozen Sapiens-1B (with CLIP-ViT fallback)
-│   │   ├── temporal_transformer.py    # trainable 1-layer, 8-head temporal aggregator
-│   │   ├── motionbert_encoder.py      # frozen MotionBERT DSTformer (with proxy fallback)
-│   │   ├── bert_encoder.py            # trainable BERT-base + prompt ensemble (batched)
-│   │   ├── clip_encoder.py            # CLIP ViT-L/14 visual + CLIP text (baseline)
-│   │   ├── signclip_encoder.py        # SignCLIP visual + text (baseline)
-│   │   └── multimodal_zsl.py          # the full model: fusion + InfoNCE
-│   ├── losses/
-│   │   └── contrastive_losses.py      # SymmetricInfoNCE (single source, reused)
-│   ├── data/
-│   │   ├── dataset.py                 # SignLanguageDataset + ZeroShotSignDataset
-│   │   ├── preprocessing.py           # VideoPreprocessor, SkeletonExtractor, prompts
-│   │   └── splits.py                  # build / load seen-unseen gloss splits + manifest hash
-│   ├── evaluation/
-│   │   └── evaluator.py               # ZeroShotEvaluator (ZSL + GZSL)
-│   └── utils/
-│       ├── metrics.py                 # top-k, mAP, H-mean, confusion matrix
-│       ├── checkpoint.py              # robust load (handles 4 key conventions)
-│       ├── logging_utils.py           # logger + W&B + TensorBoard
-│       └── visualization.py           # figure generators (real-data only)
-├── notebooks/
-│   ├── 01_data_exploration.ipynb      # inspect WLASL splits and descriptions
-│   ├── 02_visualizations.ipynb        # paper figures (real-data OR reported)
-│   ├── 03_ablation_analysis.ipynb     # ablation tables and plots (Table III)
-│   └── 04_sensitivity_analysis.ipynb  # τ / batch-size heatmap (Table IV), noise curve (Table II)
-└── tests/
-    ├── test_models.py                 # shapes, frozen-param check, temporal aggregation
-    ├── test_dataset.py                # description-key matching, collate
-    └── test_losses.py                 # symmetric InfoNCE behaviour
+data/
+└── azsld/
+    ├── videos/{GLOSS}/{video_id}.mp4          # link/copy AzSLD words200 here
+    ├── skeletons/{GLOSS}/{video_id}.npy       # (T, 17, 2); produced by extract_skeletons.py
+    ├── descriptions.json                      # {gloss: "qısa Azərbaycan təsviri"}
+    └── splits/
+        ├── seen_glosses.txt                   # 150 glosses, one per line
+        ├── unseen_glosses.txt                 #  50 glosses
+        └── split_manifest.json                # gloss assignments + counts (audit)
 ```
+
+`descriptions.json` is keyed by **gloss** (not per video) — every video of a gloss
+shares its description. The splits and descriptions are **committed** to the repo so
+the zero-shot partition is reproducible; the large binaries (videos, skeletons) are
+**not** committed (see `.gitignore`).
+
+The zero-shot split is **gloss-disjoint** (150 seen / 50 unseen) and
+**frequency-stratified**: glosses are bucketed by video count and the unseen set is
+sampled proportionally, so it matches the corpus frequency profile. AzSLD *words200*
+carries **no signer identity** (`cam: null`), so a signer-disjoint split is not
+possible; validation is instead a **video-disjoint** held-out fraction of the seen
+set (used only for early stopping).
 
 ---
 
@@ -96,181 +84,144 @@ zsslr/
 ```bash
 git clone https://github.com/zsslrepo/ZSSLR/
 cd ZSSLR
-bash scripts/setup_environment.sh
-# OR manually:
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e .
 ```
 
-### 2. Verify the code with synthetic data (no dataset needed)
+### 2. Verify the code with synthetic data (no dataset, no weights needed)
 
 ```bash
 python scripts/smoke_test.py
 ```
 
-This runs the entire pipeline — encoders, temporal aggregation, fusion, InfoNCE loss, and both ZSL and GZSL inference — on randomly generated tensors. If this passes, your environment is correct. **Expected runtime: under 60 s on CPU.**
+Runs the whole pipeline — encoders, temporal aggregation, concat-MLP fusion, InfoNCE
+loss, and zero-shot inference — on random tensors with tiny dimensions. If it passes,
+your environment and the architecture wiring are correct. Runs on CPU.
 
-### 3. Prepare your data
+Unit tests:
 
-Expected layout:
-
-```
-data/
-└── wlasl/
-    ├── videos/{gloss}/{video_id}.mp4
-    ├── skeletons/{gloss}/{video_id}.npy        # (T, 17, 2); see step 5
-    ├── descriptions.json     {gloss: "English text description"}
-    └── splits/
-        ├── seen_glosses.txt        # 1,500 glosses, one per line
-        ├── unseen_glosses.txt      # 500 glosses
-        ├── signer_map.json         # {video_id: signer_id}
-        └── manifest.json           # gloss assignments + corpus hash (for leakage checks)
+```bash
+pytest tests/
 ```
 
-`descriptions.json` is keyed by **gloss**, not by individual video — every video of the same gloss shares the same description. Descriptions are short definitions from WordNet / ASL dictionaries, e.g. `"The sign for book. A set of written pages fastened together."`
+### 3. Point the code at the AzSLD videos
+
+Link (or copy) the AzSLD *words200* video tree so each gloss is a sub-directory:
+
+```bash
+mkdir -p data/azsld
+ln -s /path/to/AzSLD_Words_200 data/azsld/videos
+```
 
 ### 4. Build the zero-shot split
 
 ```bash
 python scripts/build_split.py \
-    --videos_dir data/wlasl/videos \
-    --num_seen 1500 --num_unseen 500 \
-    --min_videos_per_gloss 5 \
+    --video_dir data/azsld/videos \
+    --num_seen 150 --num_unseen 50 \
     --seed 42 \
-    --output_dir data/wlasl/splits
+    --output_dir data/azsld/splits
 ```
 
-Glosses are bucketed by video frequency and the unseen set is sampled proportionally per bucket, so the unseen split matches the full-vocabulary frequency profile. Signers are partitioned **disjointly** across train / val / test-seen. WordNet synsets are used to keep near-synonyms on the same side of the split. The result is written to `manifest.json` with a corpus hash so anyone can reproduce or audit it.
+Writes `seen_glosses.txt`, `unseen_glosses.txt`, and `split_manifest.json`
+(frequency-stratified, gloss-disjoint). A manifest (e.g. AzSLD's `manifest.json`) can
+be passed instead of scanning the directory.
 
-### 5. Extract skeletons (one-time, slow)
+### 5. Build gloss descriptions
+
+```bash
+python scripts/build_descriptions.py \
+    --splits_dir data/azsld/splits \
+    --output data/azsld/descriptions.json
+    # optional: --override my_manual_descriptions.json
+```
+
+By default the description of a gloss is the normalised gloss word itself; supply a
+manual dictionary via `--override` to improve text quality (descriptions affect
+accuracy).
+
+### 6. Extract skeletons (one-time, slow)
 
 ```bash
 python scripts/extract_skeletons.py \
-    --video_dir  data/wlasl/videos \
-    --output_dir data/wlasl/skeletons
+    --video_dir  data/azsld/videos \
+    --output_dir data/azsld/skeletons
 ```
 
-Uses MediaPipe Holistic to produce 2D landmarks, then maps them to a **17-joint H36M-compatible skeleton** as required by MotionBERT. Output is a `(T, 17, 2)` array per clip (T = 32 frames, uniformly sampled at 30 fps; looping/padding as needed; frames resized to 224×224).
+Uses MediaPipe Pose, then maps landmarks to a **17-joint H36M-compatible** skeleton
+as required by MotionBERT. Output is `(T, 17, 2)` per clip.
 
-### 6. Train
+### 7. Train
 
 ```bash
-# Full model (default)
 python scripts/train.py --config configs/default.yaml
-# with overrides:
-python scripts/train.py --config configs/default.yaml --batch_size 64 --temperature 0.07 --use_wandb
-
-# Baselines, identical contrastive protocol:
-python scripts/train.py --config configs/clip_baseline.yaml
-python scripts/train.py --config configs/signclip_baseline.yaml
 ```
 
-Only the **BERT text encoder, the Temporal Transformer, and the linear projection / fusion heads** are updated. **Sapiens-1B and MotionBERT stay frozen** — this is the paper’s configuration and isolates the contribution of the pretrained representations. (For the CLIP / SignCLIP baselines, both of their encoders are frozen and only the projection heads + Temporal Transformer are trained.)
+Default: AdamW (`lr = 1e-4`, `weight_decay = 1e-5`), 100 epochs, batch size 64,
+`τ = 0.07`, `T = 32` frames. Early stopping on the video-disjoint validation split.
+Sapiens-1B and MotionBERT are frozen.
 
-Default training: AdamW (`lr=1e-4`, `weight_decay=1e-5`), 100 epochs, batch size 64, temperature τ = 0.07, on a single NVIDIA A100 (80 GB). Early stopping on the signer-disjoint validation set. Each experiment is repeated with 3 random seeds.
-
-### 7. Evaluate (ZSL + GZSL) and save embeddings
+### 8. Evaluate (zero-shot on unseen glosses)
 
 ```bash
 python scripts/evaluate.py \
     --checkpoint     outputs/<exp>/checkpoints/best.pt \
-    --video_dir      data/wlasl/videos \
-    --skeleton_dir   data/wlasl/skeletons \
-    --descriptions   data/wlasl/descriptions.json \
-    --splits_dir     data/wlasl/splits \
-    --protocol       both \
-    --output_dir     outputs/evaluation
+    --config         configs/default.yaml
 ```
 
-This writes `embeddings.npz`, `predictions.npz`, and `metrics.json` (top-1/top-5/mAP for ZSL, and `Au` / `As` / `H-mean` for GZSL) — exactly the files the visualization notebook expects.
-
-### 8. Generate paper figures
-
-```bash
-jupyter notebook notebooks/02_visualizations.ipynb
-```
-
-Each figure either reads `outputs/evaluation/*.npz` (real data) or, if no `.npz` is found, plots the numbers reported in the paper — and labels the figure accordingly so reviewers can tell at a glance which is which.
+Writes embeddings, predictions, and `metrics.json` (top-1 / top-5 / top-10, mAP) for
+the unseen-only zero-shot protocol; set the evaluation split to `mixed` for GZSL.
 
 ---
 
-## Evaluation protocols
+## Foundation-model weights (important)
 
-- **Traditional ZSL.** A test video from the unseen set is matched against the **unseen** gloss text embeddings only: `ĝ = argmax_{g∈G_u} z_v · z_t(g)`. Reported as top-1, top-5, mAP.
-- **Generalized ZSL (GZSL).** Retrieval is performed over the **full** 2,000-class vocabulary. We report accuracy on unseen videos `Au`, accuracy on held-out-signer seen videos `As`, and their harmonic mean `H-mean = 2·As·Au/(As+Au)`, which penalises models biased toward either split.
+Reported paper-level accuracy requires the **official** foundation-model checkpoints
+and a GPU:
 
----
+- **Sapiens-1B.** If `checkpoints/sapiens_1b.pt` is missing, `sapiens_encoder.py`
+  falls back to a `timm` ViT-Huge backbone (random / ImageNet-CLIP init). The
+  pipeline runs end-to-end and smoke tests pass, but zero-shot accuracy is far below
+  the official Sapiens.
+- **MotionBERT.** If the official DSTformer checkpoint (depth 5, d = 512) is missing,
+  an architecturally compatible but **untrained** DSTformer is built — smoke tests
+  pass, real performance needs the official weights.
 
-## Baselines
-
-| Baseline | Visual | Text | Trained components |
-|---|---|---|---|
-| **CLIP visual-swap** | CLIP ViT-L/14 (frozen) | BERT-base | Temporal Transf. + projections |
-| **Full CLIP** | CLIP ViT-L/14 (frozen) | CLIP text (frozen) | Temporal Transf. + projections |
-| **SignCLIP** | SignCLIP visual (frozen) | SignCLIP text (frozen) | Temporal Transf. + projections |
-
-All three share our fusion head, InfoNCE loss (τ = 0.07, B = 64), prompt ensemble, and zero-shot inference protocol, so any difference is attributable to the visual/text backbone choice. Note SignCLIP is pretrained on **continuous, sentence-level** signing, whereas this task is **isolated, word-level** — a domain mismatch quantified directly in the paper.
-
----
-
-## Ablations (Table III, 500 unseen glosses, mean ± std over 3 seeds)
-
-| Variant | Top-1 (%) | Top-5 (%) | mAP (%) | H-mean (%) |
-|---|---|---|---|---|
-| Full model | 35.2 ± 0.4 | 57.4 ± 0.5 | 41.0 ± 0.4 | 28.6 ± 0.5 |
-| Mean-pool visual (no Temporal Transf.) | 33.4 ± 0.5 | 55.8 ± 0.6 | 39.2 ± 0.5 | 27.1 ± 0.6 |
-| w/o skeleton encoder | 28.2 ± 0.6 | 49.3 ± 0.7 | 33.1 ± 0.6 | 22.7 ± 0.7 |
-| w/o visual encoder | 25.1 ± 0.7 | 46.0 ± 0.8 | 30.5 ± 0.7 | 20.4 ± 0.8 |
-| ST-GCN instead of MotionBERT | 27.5 ± 0.6 | 48.7 ± 0.7 | 32.0 ± 0.6 | 22.2 ± 0.7 |
-| Single prompt (no ensemble) | 29.7 ± 0.5 | 51.2 ± 0.6 | 34.5 ± 0.5 | 23.9 ± 0.6 |
-
-Skeleton-noise robustness (Table II): top-1 degrades gracefully to σ = 5 px (−1.5 pp), then −4.3 pp at σ = 10 px and −9.8 pp at σ = 20 px. Temperature/batch sweep (Table IV): τ = 0.07, B = 64 is optimal under the A100 memory budget.
+The same code scales up unchanged once the official checkpoints and a GPU are
+available.
 
 ---
 
-## Checkpoint compatibility
+## Method details
 
-`scripts/evaluate.py` and `src/utils/checkpoint.py` handle four checkpoint conventions:
-
-```python
-{"model_state_dict": state_dict}   # this repo
-{"model_state":      state_dict}   # earlier repo iterations
-{"model":            state_dict}   # some HuggingFace exports
-state_dict                         # bare torch.save(model.state_dict())
-```
-
-`module.` prefixes from Distributed Data Parallel are stripped automatically.
+- **Temporal Transformer.** The `T = 32` frame embeddings from Sapiens are treated as
+  a sequence, given a learnable positional embedding, and passed through a single
+  1-layer / 8-head Transformer encoder (pre-norm, GELU). The position-0 output is the
+  video embedding `v ∈ R¹⁰²⁴`. Only this module (not Sapiens) is trained.
+- **17 H36M joints.** Skeletons are mapped to the 17-joint H36M layout MotionBERT
+  expects and stored as `(T, 17, 2)`.
+- **Azerbaijani prompt ensemble.** 5 templates around each gloss/description; the text
+  embedding is the mean of the per-template `[CLS]` embeddings, projected to 512-d and
+  L2-normalised.
+- **Symmetric InfoNCE** (`τ = 0.07`, fixed) is defined once in
+  `src/losses/contrastive_losses.py` and reused by the model.
+- **Dimensions.** `v ∈ R¹⁰²⁴`, `m ∈ R⁵¹²`; fusion `[v; m] ∈ R¹⁵³⁶ → 512`;
+  `z_v, z_t ∈ R⁵¹²`.
 
 ---
 
-## Notes on faithfulness to the paper
+## Limitations
 
-- **Sapiens-1B fallback.** The official Sapiens checkpoint requires registration. If `checkpoints/sapiens_1b.pt` is not found, the code falls back to `vit_huge_patch14_clip_224` from `timm`. The fallback is documented in `src/models/sapiens_encoder.py` and yields lower zero-shot accuracy than the official Sapiens.
-- **MotionBERT fallback.** Similar — if the official DSTformer checkpoint (depth = 5, d = 512) is missing, an architecturally compatible but untrained DSTformer is constructed; smoke tests pass but real performance requires the official checkpoint.
-- **Temporal Transformer.** The T = 32 frame-level Sapiens `[CLS]` tokens are treated as a sequence and fed to a single-layer, 8-head Transformer encoder with a learnable positional embedding; the position-0 output is the video-level embedding `v ∈ R¹⁰²⁴`. Fewer than 5M trainable parameters; only this module (not Sapiens) is trained. Replacing mean-pooling with it gives +1.8 pp top-1.
-- **17 H36M joints.** Skeletons are mapped to the 17-joint H36M layout required by MotionBERT and stored as `(T, 17, 2)`.
-- **3-template prompt ensemble.** `"A person signing the word {gloss}."`, `"The ASL sign for {gloss}."`, `"{gloss}. {description}"`. The final text embedding is the mean of the per-template `[CLS]` embeddings, computed in a **single batched forward pass** (3N tokens per batch), then projected `768 → 512` with L2-norm. The ensemble adds +5.5 pp over a single template.
-- **Symmetric InfoNCE** (τ = 0.07) is implemented once in `src/losses/contrastive_losses.py` and reused — not duplicated — in `src/models/multimodal_zsl.py` and in both baselines.
-- **Dimensions.** `v ∈ R¹⁰²⁴`, `m ∈ R⁵¹²`, `t ∈ R⁷⁶⁸`; fusion concatenates `[v; m] ∈ R¹⁵³⁶ → 512` (ReLU → Linear → L2-norm); `z_v, z_t ∈ R⁵¹²`.
+- Results depend on the official frozen checkpoints; the fallbacks exist only so the
+  code is runnable and testable without them.
+- AzSLD *words200* has no signer metadata, so the split is gloss-disjoint /
+  video-disjoint rather than signer-disjoint.
+- Gloss descriptions are auto-generated by default; richer, hand-written Azerbaijani
+  descriptions are expected to improve the text side.
 
 ---
 
 ## License
 
 MIT — see `LICENSE`.
-
-## Citation
-
-```bibtex
-@inproceedings{zsslr_2026,
-  title     = {Word-Level Isolated Zero-Shot Sign Language Recognition
-               via Frozen Human-Centric Foundation Models},
-  author    = {Alishzade Nigar, Ibadullayeva Lala, Iskandarli Rajab,
-               Babayev Jabrayil, Mammadov Elnur, Elekberli Mehemmed,
-               Hasanli Yusif and Aliyev Elvin},
-  booktitle = {Proceedings of the IEEE Conference},
-  year      = {2026},
-  note      = {Code: https://github.com/zsslrepo/ZSSLR/}
-}
-```

@@ -10,7 +10,7 @@ Critical conventions
   video file.
 * Skeletons are pre-extracted with `scripts/extract_skeletons.py` and
   stored at `{skeleton_dir}/{gloss_id}/{signer}_{instance}.npy` —
-  (T_full, 133, 2) per file.
+  (T_full, 17, 2) H36M keypoints per file.
 """
 
 from __future__ import annotations
@@ -208,7 +208,7 @@ class SignLanguageDataset(Dataset):
         if path is None:
             return None
         try:
-            arr = np.load(path)                                # (T_full, 133, 2)
+            arr = np.load(path)                                # (T_full, 17, 2)
         except (FileNotFoundError, ValueError):
             return None
         if arr.ndim != 3 or arr.shape[2] != 2:

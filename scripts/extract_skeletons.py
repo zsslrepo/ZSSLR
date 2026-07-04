@@ -1,5 +1,5 @@
-"""Run MediaPipe Holistic on every video and save the (T, 133, 2) keypoint
-sequence as `{output_dir}/{gloss_id}/{video_stem}.npy`.
+"""Run MediaPipe Pose on every video and save the (T, 17, 2) H36M keypoint
+sequence as `{output_dir}/{gloss_id}/{video_stem}.npy` (MotionBERT input).
 
 Usage
 -----

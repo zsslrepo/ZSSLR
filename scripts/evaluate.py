@@ -120,6 +120,8 @@ def main() -> None:
     logger.info("Building model...")
     model = MultimodalZSLModel(
         embedding_dim=cfg["model"]["embedding_dim"],
+        visual_dim=cfg["model"].get("visual_dim", 1024),
+        motion_dim=cfg["model"].get("motion_dim", 512),
         temperature=cfg["model"]["temperature_init"],
         temperature_learnable=cfg["model"]["temperature_learnable"],
         sapiens_config=cfg["model"]["visual"]["sapiens"],

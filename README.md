@@ -44,6 +44,63 @@ are trained. Sapiens-1B and MotionBERT stay **frozen**.
 
 ---
 
+## Repository layout
+
+Every path below exists in the repo (no placeholder / fictional files):
+
+```
+ZSSLR/
+├── README.md                       # this file
+├── LICENSE                         # MIT
+├── setup.py                        # pip install -e .
+├── requirements.txt
+├── .gitignore                      # excludes videos/skeletons/checkpoints; keeps splits + descriptions
+├── configs/
+│   └── default.yaml                # single source of truth for hyperparameters (paper-faithful)
+├── scripts/
+│   ├── setup_environment.sh        # venv + deps installer
+│   ├── build_split.py              # frequency-stratified, gloss-disjoint zero-shot split
+│   ├── build_descriptions.py       # per-gloss Azerbaijani descriptions -> descriptions.json
+│   ├── extract_skeletons.py        # MediaPipe Pose -> 17-joint H36M .npy per video
+│   ├── train.py                    # training entry point
+│   ├── evaluate.py                 # zero-shot (ZSL / GZSL) evaluation
+│   └── smoke_test.py               # end-to-end test on synthetic data (CPU)
+├── src/
+│   ├── models/
+│   │   ├── sapiens_encoder.py      # frozen Sapiens-1B + trainable Temporal Transformer (timm fallback)
+│   │   ├── motionbert_encoder.py   # frozen MotionBERT DSTformer, 17-joint (untrained fallback)
+│   │   ├── azbert_encoder.py       # trainable AzerBert + 5-template Azerbaijani prompt ensemble
+│   │   └── multimodal_zsl.py       # full model: concat-MLP fusion + InfoNCE
+│   ├── losses/
+│   │   └── contrastive_losses.py   # SymmetricInfoNCE (single source, reused)
+│   ├── data/
+│   │   ├── dataset.py              # SignLanguageDataset + ZeroShotSignDataset
+│   │   ├── preprocessing.py        # VideoPreprocessor, SkeletonExtractor (17-joint), prompts
+│   │   └── splits.py               # build / load seen-unseen gloss splits
+│   ├── evaluation/
+│   │   └── evaluator.py            # ZeroShotEvaluator (ZSL + GZSL)
+│   └── utils/
+│       ├── metrics.py              # top-k, mAP, H-mean
+│       ├── checkpoint.py           # robust checkpoint loading
+│       ├── logging_utils.py        # logger + optional W&B / TensorBoard
+│       └── visualization.py        # figure generators
+├── notebooks/
+│   ├── 01_data_exploration.ipynb
+│   ├── 02_visualizations.ipynb
+│   └── 03_ablation_analysis.ipynb
+├── data/
+│   └── azsld/
+│       ├── descriptions.json       # committed (200 glosses)
+│       └── splits/                 # committed: seen/unseen_glosses.txt + split_manifest.json
+└── tests/
+    ├── test_models.py              # shapes, frozen-param check, temporal aggregation
+    ├── test_dataset.py             # split filtering, collate
+    ├── test_losses.py              # symmetric InfoNCE behaviour
+    └── test_metrics.py             # top-k / mAP / H-mean
+```
+
+---
+
 ## Dataset — AzSLD *words200*
 
 - **Source:** AzSLD (Azerbaijani Sign Language Dataset), *words200* subset — 200
@@ -56,7 +113,7 @@ data/
 └── azsld/
     ├── videos/{GLOSS}/{video_id}.mp4          # link/copy AzSLD words200 here
     ├── skeletons/{GLOSS}/{video_id}.npy       # (T, 17, 2); produced by extract_skeletons.py
-    ├── descriptions.json                      # {gloss: "qısa Azərbaycan təsviri"}
+    ├── descriptions.json                      # {gloss: "short Azerbaijani description"}
     └── splits/
         ├── seen_glosses.txt                   # 150 glosses, one per line
         ├── unseen_glosses.txt                 #  50 glosses
